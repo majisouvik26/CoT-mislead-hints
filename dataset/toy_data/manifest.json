@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "dataset_id": "TIGER-Lab/MMLU-Pro",
+  "split": "validation",
+  "created_utc": "2026-09-07T18:32:42.240611+00:00",
+  "seed": 42,
+  "provenance": {
+    "loader": "huggingface_datasets",
+    "requested_revision": "main",
+    "resolved_revision": "b189ec765aa7ed75c8acfea42df31fdae71f97be",
+    "dataset_fingerprint": "8e4927f2c79b49fd"
+  },
+  "raw_rows_sha256": "f6296ae60a99ad6e8b551c83b3055889a29e1a43ef4646caea912f96becf87de",
+  "clean_rows_sha256": "00e4eb77b5166d4f94a931246e700da01ba83cf22c99bb62709a78529960f386",
+  "files": {
+    "no_hint.jsonl": {
+      "rows": 70,
+      "sha256": "2d9f1f1847690c24d4ea240649abe494c3e93bec24e34daf47c7989907ca5217"
+    },
+    "neutral_hint.jsonl": {
+      "rows": 70,
+      "sha256": "7bbc16c9e109b9425842b5026e8cbc3fad7480e8def1e9e234e75a16dcfa4b91"
+    },
+    "direct_wrong_hint.jsonl": {
+      "rows": 70,
+      "sha256": "bf76db011c9316a6191bdee34409dcd3c2b97a63f8d7707441fedb9ef968e5dc"
+    },
+    "expert_wrong_hint.jsonl": {
+      "rows": 70,
+      "sha256": "3278b0ed2b21950c07271d09c1fb89e091f5d8d66c4fc77b2b2c552d980ea9af"
+    }
+  }
+}
