@@ -1,0 +1,12 @@
+{
+  "dataset_id": "souvikmaji22/mmlu-pro-hints",
+  "dataset_config": "default",
+  "dataset_revision": "9372f572eea667dc03380e904ff96f6ec192a7f8",
+  "dev_dir": "dataset/toy_data",
+  "categories": [],
+  "test_size": 100,
+  "dev_size": 20,
+  "sampling_size": 50,
+  "data_seed": 42,
+  "sampling_seed": 271828
+}

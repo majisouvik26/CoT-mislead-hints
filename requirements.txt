@@ -1,0 +1,11 @@
+torch
+transformers
+datasets
+huggingface-hub
+accelerate
+safetensors
+numpy
+matplotlib
+filelock
+vllm
+
