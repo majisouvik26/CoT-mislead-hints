@@ -1,4 +1,4 @@
-# CoT-mislead-hints
+# Evaluating Chain-of-Thought Robustness to Misleading Hints
 
 **How much can a simple wrong suggestion change an answer when a model is asked to explain its reasoning?**
 
