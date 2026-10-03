@@ -1,6 +1,6 @@
 # Evaluating Chain-of-Thought Robustness to Misleading Hints
 
-**How much can a wrong suggestion change an answer—and how often does the explanation acknowledge it?**
+**How much can a wrong suggestion change an answer and how often does the explanation acknowledge it?**
 
 This repository evaluates two instruction-tuned models on paired MMLU-Pro questions under misleading hints. It measures answer accuracy, shifts toward a fixed wrong option, and explicit acknowledgment of hints in a small annotation sample. No model training is involved.
 

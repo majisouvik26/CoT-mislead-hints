@@ -4,6 +4,7 @@ import os
 import time
 
 from .common import digest
+from .inference import text_config, thinking_settings
 
 
 def configure_environment(batch_invariant=False):
@@ -30,7 +31,7 @@ composition changes on resume. Optional batch invariance needs supported GPUs.
 def eos_ids_from_config(generation_config, model_config, tokenizer):
     eos = getattr(generation_config, "eos_token_id", None)
     if eos is None:
-        eos = getattr(model_config, "eos_token_id", None)
+        eos = getattr(text_config(model_config), "eos_token_id", None)
     if eos is None:
         eos = tokenizer.eos_token_id
     values = [eos] if isinstance(eos, int) else list(eos or [])
@@ -86,8 +87,8 @@ class VLLMBackend:
             from vllm import LLM, SamplingParams
         except ImportError as exc:
             raise RuntimeError("vLLM dependencies are unavailable. Install with "
-                               "python -m pip install -r requirements-cot.txt in a fresh environment, "
-                               "or use --backend transformers with requirements-transformers.txt.") from exc
+                               "python -m pip install -r requirements.txt, or use "
+                               "requirements-qwen35.txt in a fresh environment for Qwen3.5.") from exc
         self.torch = torch
         self.args = args
         self.SamplingParams = SamplingParams
@@ -102,17 +103,19 @@ class VLLMBackend:
         self.tokenizer = AutoTokenizer.from_pretrained(args.model, **kwargs)
         if not self.tokenizer.chat_template:
             raise ValueError("Checkpoint has no chat template")
+        self.thinking, self.chat_options = thinking_settings(self.tokenizer, args.thinking)
         try:
             generation = GenerationConfig.from_pretrained(args.model, **kwargs)
         except OSError:
             generation = GenerationConfig.from_model_config(config)
         self.eos_ids = eos_ids_from_config(generation, config, self.tokenizer)
-        self.thinking = args.thinking == "on" or (args.thinking == "auto" and "qwen3" in args.model.lower())
         # vLLM auto converts FP32 checkpoint configs to FP16, unlike Transformers.
         # Resolve auto ourselves so moving engines does not silently change dtype.
         dtype = args.dtype
         if dtype == "auto":
-            declared = getattr(config, "dtype", None) or getattr(config, "torch_dtype", None)
+            language = text_config(config)
+            declared = (getattr(language, "dtype", None) or getattr(language, "torch_dtype", None)
+                        or getattr(config, "dtype", None) or getattr(config, "torch_dtype", None))
             dtype = str(declared).removeprefix("torch.") if declared is not None else "float32"
         if dtype not in ("bfloat16", "float16", "float32"):
             raise ValueError(f"Unsupported dtype {dtype!r}; supply --dtype explicitly")
@@ -136,6 +139,9 @@ class VLLMBackend:
         }
         if args.max_model_len is not None:
             engine_args["max_model_len"] = args.max_model_len
+        if getattr(config, "model_type", "") in ("qwen3_5", "qwen3_5_moe"):
+            # This study supplies text only; do not load/profile the vision encoder.
+            engine_args["language_model_only"] = True
         self.llm = LLM(**engine_args)
         engine_config = self.llm.llm_engine.model_config
         engine_limit = engine_config.max_model_len
@@ -165,11 +171,8 @@ class VLLMBackend:
         }
 
     def render(self, messages):
-        options = {}
-        if self.args.thinking != "auto" or "qwen3" in self.args.model.lower():
-            options["enable_thinking"] = self.thinking
         return self.tokenizer.apply_chat_template(messages, tokenize=False,
-                                                  add_generation_prompt=True, **options)
+                                                  add_generation_prompt=True, **self.chat_options)
 
     def prepare(self, prompt):
         text = self.render(prompt["messages"])

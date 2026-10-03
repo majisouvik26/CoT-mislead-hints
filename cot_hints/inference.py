@@ -9,7 +9,7 @@ from pathlib import Path
 from .common import (append_batch, digest, file_hash, read_json, read_jsonl, repair_tail,
                      unique_index, utc_now, versions, write_json)
 from .protocol import conditions, labels, parse_answer
-
+from filelock import FileLock
 
 def add_backend_arguments(parser):
     parser.add_argument("--backend", choices=("vllm", "transformers"), default="vllm")
@@ -79,10 +79,42 @@ def termination_for_ids(ids, eos_ids, max_new_tokens):
     return ids, "length" if len(ids) >= max_new_tokens else "stopped_without_eos"
 
 
+def text_config(config):
+    """Qwen3.5 stores language-model settings inside a multimodal config."""
+    return getattr(config, "text_config", config)
+
+
+def thinking_settings(tokenizer, mode):
+    """Resolve and verify the checkpoint's native chat-template switch."""
+    if mode not in ("auto", "on", "off"):
+        raise ValueError("A single inference run requires --thinking auto, on, or off")
+    template = tokenizer.chat_template
+    if isinstance(template, dict):
+        template = tokenizer.get_chat_template()
+    if "enable_thinking" not in template:
+        if mode == "on":
+            raise ValueError("Checkpoint chat template does not support --thinking on")
+        return False, {}
+    messages = [{"role": "user", "content": "Which number is even?"}]
+    render = lambda **kw: tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True, **kw)
+    enabled, disabled = render(enable_thinking=True), render(enable_thinking=False)
+    if enabled == disabled:
+        raise ValueError("Checkpoint chat template ignores enable_thinking; modes cannot be compared")
+    if mode == "auto":
+        default = render()
+        if default not in (enabled, disabled):
+            raise ValueError("Cannot resolve default thinking mode; select --thinking on or off")
+        thinking = default == enabled
+    else:
+        thinking = mode == "on"
+    return thinking, {"enable_thinking": thinking}
+
+
 class TransformersBackend:
     def __init__(self, args, revision):
         import torch
-        from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+        from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
         self.torch = torch
         self.args = args
         kwargs = {"revision": None if revision.startswith("local-config-") else revision,
@@ -90,6 +122,12 @@ class TransformersBackend:
         self.tokenizer = AutoTokenizer.from_pretrained(args.model, padding_side="left", **kwargs)
         if not self.tokenizer.chat_template:
             raise ValueError("Checkpoint has no chat template")
+        self.thinking, self.chat_options = thinking_settings(self.tokenizer, args.thinking)
+        config = AutoConfig.from_pretrained(args.model, **kwargs)
+        model_class = AutoModelForCausalLM
+        if getattr(config, "model_type", "") in ("qwen3_5", "qwen3_5_moe"):
+            from transformers import AutoModelForImageTextToText
+            model_class = AutoModelForImageTextToText
         if self.tokenizer.pad_token_id is None:
             if self.tokenizer.eos_token_id is None:
                 raise ValueError("Tokenizer has neither PAD nor EOS")
@@ -106,7 +144,7 @@ class TransformersBackend:
                 bnb_4bit_compute_dtype=torch.bfloat16 if args.dtype in ("auto", "bfloat16") else dtype)
         if args.attn_implementation:
             load["attn_implementation"] = args.attn_implementation
-        self.model = AutoModelForCausalLM.from_pretrained(args.model, **load)
+        self.model = model_class.from_pretrained(args.model, **load)
         if args.device != "auto" and args.quantization == "none":
             self.model.to(args.device)
         self.model.eval()
@@ -118,8 +156,7 @@ class TransformersBackend:
         self.eos_ids = [eos] if isinstance(eos, int) else list(eos or [])
         if not self.eos_ids:
             raise ValueError("No EOS IDs configured")
-        self.thinking = args.thinking == "on" or (args.thinking == "auto" and "qwen3" in args.model.lower())
-        model_context = getattr(self.model.config, "max_position_embeddings", None)
+        model_context = getattr(text_config(self.model.config), "max_position_embeddings", None)
         tokenizer_context = self.tokenizer.model_max_length
         candidates = [x for x in (model_context, tokenizer_context, args.context_limit)
                       if isinstance(x, int) and 0 < x < 10**8]
@@ -142,11 +179,8 @@ class TransformersBackend:
                          "gpu_names": [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]}
 
     def render(self, messages):
-        options = {}
-        if self.args.thinking != "auto" or "qwen3" in self.args.model.lower():
-            options["enable_thinking"] = self.thinking
         return self.tokenizer.apply_chat_template(messages, tokenize=False,
-                                                  add_generation_prompt=True, **options)
+                                                  add_generation_prompt=True, **self.chat_options)
 
     def prepare(self, prompt):
         text = self.render(prompt["messages"])
@@ -350,7 +384,6 @@ def main():
                           "maximum_output_tokens": len(prompts) * a.max_new_tokens,
                           "backend": a.backend, "effective_batch_size": effective_batch_size(a)}, indent=2))
         return
-    from filelock import FileLock
     a.output.parent.mkdir(parents=True, exist_ok=True)
     with FileLock(str(a.output) + ".lock", timeout=0):
         run_locked(a, prompts)
