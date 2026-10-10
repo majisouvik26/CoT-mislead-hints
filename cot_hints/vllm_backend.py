@@ -60,7 +60,6 @@ def sampling_config(args, eos_ids):
         "detokenize": True,
         "skip_special_tokens": True,
         "spaces_between_special_tokens": False,
-        "truncate_prompt_tokens": None,
     }
 
 
@@ -109,6 +108,8 @@ class VLLMBackend:
         except OSError:
             generation = GenerationConfig.from_model_config(config)
         self.eos_ids = eos_ids_from_config(generation, config, self.tokenizer)
+        self.sampling = sampling_config(args, self.eos_ids)
+        SamplingParams(**self.sampling, seed=0)
         # vLLM auto converts FP32 checkpoint configs to FP16, unlike Transformers.
         # Resolve auto ourselves so moving engines does not silently change dtype.
         dtype = args.dtype
@@ -148,9 +149,6 @@ class VLLMBackend:
         candidates = [value for value in (engine_limit, self.tokenizer.model_max_length, args.context_limit)
                       if isinstance(value, int) and 0 < value < 10**8]
         self.context_limit = min(candidates)
-        self.sampling = sampling_config(args, self.eos_ids)
-        # Validate the complete SamplingParams configuration before writing records.
-        SamplingParams(**self.sampling, seed=0)
         self.metadata = {
             "engine": "vllm",
             "resolved_dtype": str(engine_config.dtype),
